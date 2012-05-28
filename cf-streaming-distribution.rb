@@ -54,11 +54,12 @@
 #  -d, --disable:
 #     Use with 'modify' command to disable a Streaming Distribution.
 #
-#  -t, --trusted-signer [aws_account_id | self]:
+#  -t, --trusted-signer [aws_account_id | self | empty]:
 #     Use with 'modify' command to set trusted signers on a Streaming Distribution.
 #     Can be used multiple times to set multiple signers.  This will overwrite all
 #     existing trusted signers.  Use 'self' for [aws_account_id] to refer to the
-#     parent account of the Streaming Distribution.
+#     parent account of the Streaming Distribution. Use 'empty' to remove all 
+#     trusted signers.
 #
 #  -m, --comment ['some descriptive test']:
 #     Set 'comment' on the distribution
@@ -70,7 +71,7 @@
 #    Amazon AWS SECRET ACCESS KEY (can also be set in environment variable 'AWS_SECRET_ACCESS_KEY')
 
 # joe miller, <joeym@joeym.net>, 10/30/2010
-
+require 'yaml'
 require 'rubygems'
 require 'right_aws'
 require 'getoptlong'
@@ -156,47 +157,13 @@ elsif command == 'get'
 
     begin
         result = cf.get_streaming_distribution(aws_id)
+        y result
     rescue RightAws::AwsError => e
         e.errors.each do |code, msg|
             puts "Error (#{code}): #{msg}"
         end
         exit 1
     end
-
-    cn = []
-    cn.push result[:cnames]
-
-    puts
-    puts "AWS_ID            : #{result[:aws_id]}"
-    puts "  E_TAG           : #{result[:e_tag]}"
-    puts "  Status          : #{result[:status]}"
-    puts "  Enabled         : #{result[:enabled].to_s}"
-    puts "  domain_name     : #{result[:domain_name]}"
-    puts "  origin          : #{result[:origin]}"
-    puts "  CNAMEs          : #{cn.join(", ")}"
-    puts "  Comment         : #{result[:comment]}"
-    if result[:origin_access_identity]
-        puts "  Origin Access ID: #{result[:origin_access_identity]}"
-    end
-    if result[:trusted_signers]
-        puts "  Trusted Signers : " + result[:trusted_signers].join(", ")
-        #result[:trusted_signers].each do |account|
-        #    puts "      -> aws_account_number: #{account}"
-        #end 
-    end
-    if result[:active_trusted_signers]
-        puts "  Active Signers:"
-        result[:active_trusted_signers].each do |signer|
-            puts "      -> aws_account_number: #{signer[:aws_account_number]}"
-
-            if signer[:key_pair_ids]
-                signer[:key_pair_ids].each do |keypair|
-                    puts "           -> key_pair_id  :  #{keypair}" 
-                end
-            end
-        end
-    end
-
 elsif command == 'delete'
     if args.length < 2
         puts "'delete' requires 2 args (try --help)"
@@ -264,12 +231,16 @@ elsif command == 'modify'
 
     begin
         config = cf.get_streaming_distribution_config(aws_id)
-
         config[:comment] = comment          if comment
-        config[:trusted_signers] = signers  if signers.length > 0
+        if signers.length > 0
+          signers = [] if signers.first == 'no' || signers.first == 'empty'
+          config[:trusted_signers] = signers
+        end
         config[:cnames] = cnames            if cnames.length > 0
         config[:enabled] = enabled          if enabled != nil
-        config[:origin_access_identity] = "origin-access-identity/cloudfront/#{oai}" if oai
+        # config[:origin_access_identity] = "origin-access-identity/cloudfront/#{oai}" if oai
+        config[:s3_origin] ||= {} if oai
+        config[:s3_origin][:origin_access_identity] = "origin-access-identity/cloudfront/#{oai}" if oai
 
         result = cf.set_streaming_distribution_config(aws_id, config)
 
